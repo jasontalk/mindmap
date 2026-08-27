@@ -90,6 +90,13 @@
   .node.sel{box-shadow:0 0 0 2px #fff, 0 0 0 4px var(--accent), var(--shadow)}
   .node.root.sel{box-shadow:0 0 0 2px #fff, 0 0 0 4px var(--accent)}
 
+  .linkicon{
+    position:absolute;top:-8px;right:-8px;width:18px;height:18px;border-radius:50%;
+    background:#fff;border:1px solid #CBD2DB;color:#2C63C6;font-size:11px;line-height:1;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;
+    box-shadow:0 1px 2px rgba(20,30,45,.12);
+  }
+  .linkicon:hover{border-color:#2C63C6;background:#F5F8FE}
   .toggle{
     position:absolute;right:-9px;top:50%;transform:translateY(-50%);
     width:18px;height:18px;border-radius:50%;background:#fff;border:1px solid #CBD2DB;
@@ -149,6 +156,9 @@
     <button class="tb" id="bSibling" title="新增同一層的項目">＋同層 <span class="k">Enter</span></button>
     <button class="tb" id="bEdit" title="編輯文字">編輯 <span class="k">F2</span></button>
     <button class="tb" id="bDelete" title="刪除選取的項目">刪除 <span class="k">Del</span></button>
+    <button class="tb" id="bCopy" title="複製選取的項目（含其子項目）">複製 <span class="k">⌘C</span></button>
+    <button class="tb" id="bPaste" title="把複製的項目貼為選取項目的子項目">貼上 <span class="k">⌘V</span></button>
+    <button class="tb" id="bLink" title="為選取的項目設定或移除連結網址">🔗 連結</button>
   </div>
 
   <div class="sep"></div>
@@ -250,8 +260,8 @@ const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive';
 
   // ---------- history ----------
   let history=[], hIndex=-1;
-  function serialize(n){ return {id:n.id,text:n.text,collapsed:!!n.collapsed,children:n.children.map(serialize)}; }
-  function deserialize(o){ return {id:o.id||uid(),text:o.text||'',collapsed:!!o.collapsed,children:(o.children||[]).map(deserialize)}; }
+  function serialize(n){ return {id:n.id,text:n.text,collapsed:!!n.collapsed,url:n.url,children:n.children.map(serialize)}; }
+  function deserialize(o){ return {id:o.id||uid(),text:o.text||'',collapsed:!!o.collapsed,url:o.url,children:(o.children||[]).map(deserialize)}; }
   function snapshot(){ return JSON.stringify({tree:serialize(root),sel:selectedId,title:titleInput.value}); }
   function pushHistory(){ history=history.slice(0,hIndex+1); history.push(snapshot()); if(history.length>80) history.shift(); hIndex=history.length-1; updateButtons(); }
   function restore(s){ const st=JSON.parse(s); root=deserialize(st.tree); selectedId=st.sel; titleInput.value=st.title||titleInput.value; reId(); render(); updateButtons(); }
@@ -286,6 +296,7 @@ const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive';
       const cvar=branchColorVar(n.id);
       if(cvar){ const c=getComputedStyle(document.documentElement).getPropertyValue(cvar).trim(); el.style.setProperty('--c',c); if(depth===1){ el.style.background=c; el.style.borderColor=c; } }
       const label=document.createElement('div'); label.className='label'; label.textContent=n.text; el.appendChild(label);
+      if(n.url){ const li=document.createElement('div'); li.className='linkicon'; li.textContent='↗'; li.title='開啟連結：'+n.url; li.addEventListener('mousedown',e=>e.stopPropagation()); li.addEventListener('click',e=>{ e.stopPropagation(); openLink(n.url); }); el.appendChild(li); }
       nodesLayer.appendChild(el);
       n._el=el; n._w=el.offsetWidth; n._h=el.offsetHeight;
       flat.push({n,depth});
@@ -360,6 +371,21 @@ const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive';
   function addSibling(){ if(readOnly) return; const r=find(selectedId); if(!r) return; if(!r.parent){ addChild(); return; } const n=makeNode('新項目'); const arr=r.parent.children; arr.splice(arr.indexOf(r.node)+1,0,n); selectedId=n.id; render(); beginEdit(n.id); }
   function deleteNode(){ if(readOnly) return; const r=find(selectedId); if(!r||!r.parent){ toast('根項目無法刪除'); return; } const arr=r.parent.children, i=arr.indexOf(r.node); arr.splice(i,1); const near=arr[Math.min(i,arr.length-1)]; selectedId=near?near.id:r.parent.id; render(); pushHistory(); }
   function toggleCollapse(){ const s=selected(); if(s&&s.children.length){ s.collapsed=!s.collapsed; render(); pushHistory(); } }
+
+  /* ---------- 連結 / 複製貼上 ---------- */
+  function openLink(url){ if(url && /^https?:\/\//i.test(url)) window.open(url,'_blank','noopener,noreferrer'); }
+  function setLink(){
+    if(readOnly) return; const s=selected(); if(!s) return;
+    let v=prompt('輸入這個項目的連結網址（留空可移除）：', s.url||'');
+    if(v===null) return; v=v.trim();
+    if(v===''){ delete s.url; toast('已移除連結'); }
+    else { if(!/^https?:\/\//i.test(v)) v='https://'+v; s.url=v; toast('已設定連結'); }
+    render(); pushHistory();
+  }
+  let clipboard=null;
+  function cloneWithNewIds(o){ return {id:uid(), text:o.text, collapsed:!!o.collapsed, url:o.url, children:(o.children||[]).map(cloneWithNewIds)}; }
+  function copyNode(){ const s=selected(); if(!s) return; clipboard=serialize(s); toast('已複製項目（含子項目）'); }
+  function pasteNode(){ if(readOnly) return; const s=selected(); if(!s) return; if(!clipboard){ toast('剪貼簿是空的，請先按「複製」'); return; } s.collapsed=false; const n=cloneWithNewIds(clipboard); s.children.push(n); selectedId=n.id; render(); pushHistory(); toast('已貼上為子項目'); }
   function navigate(dir){ const r=find(selectedId); if(!r) return; const n=r.node,p=r.parent; if(dir==='right'){ const k=visKids(n); if(k.length) select(k[Math.floor(k.length/2)].id); } else if(dir==='left'){ if(p) select(p.id); } else if(dir==='up'||dir==='down'){ if(!p) return; const a=p.children,i=a.indexOf(n),j=dir==='up'?i-1:i+1; if(a[j]) select(a[j].id); } }
 
   // ---------- pan & zoom ----------
@@ -384,6 +410,8 @@ const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive';
     const meta=e.metaKey||e.ctrlKey;
     if(meta && e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey?redo():undo(); return; }
     if(meta && e.key.toLowerCase()==='y'){ e.preventDefault(); redo(); return; }
+    if(meta && e.key.toLowerCase()==='c'){ e.preventDefault(); copyNode(); return; }
+    if(meta && e.key.toLowerCase()==='v'){ e.preventDefault(); pasteNode(); return; }
     if(meta) return;
     switch(e.key){
       case 'Tab': e.preventDefault(); addChild(); break;
@@ -407,6 +435,9 @@ const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive';
   $('bSibling').onclick=()=>{ if(selected())addSibling(); };
   $('bEdit').onclick=()=>{ if(selected())beginEdit(selectedId); };
   $('bDelete').onclick=deleteNode;
+  $('bCopy').onclick=copyNode;
+  $('bPaste').onclick=pasteNode;
+  $('bLink').onclick=setLink;
   $('bUndo').onclick=undo; $('bRedo').onclick=redo; $('bFit').onclick=fit;
   $('zIn').onclick=()=>{ const r=stage.getBoundingClientRect(); zoomAt(r.width/2,r.height/2,1.15); };
   $('zOut').onclick=()=>{ const r=stage.getBoundingClientRect(); zoomAt(r.width/2,r.height/2,0.87); };
@@ -541,7 +572,7 @@ const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive';
     readOnly=true;
     titleInput.readOnly=true;
     const b=document.getElementById('roBadge'); if(b) b.classList.add('show');
-    ['bChild','bSibling','bEdit','bDelete','bUndo','bRedo','bDriveOpen','bDriveSave','bViewLink','bNew','bOpen','bSave'].forEach(id=>{ const el=$(id); if(el) el.style.display='none'; });
+    ['bChild','bSibling','bEdit','bDelete','bCopy','bPaste','bLink','bUndo','bRedo','bDriveOpen','bDriveSave','bViewLink','bNew','bOpen','bSave'].forEach(id=>{ const el=$(id); if(el) el.style.display='none'; });
   }
 
   $('bViewLink').onclick=()=>{
