@@ -480,7 +480,7 @@ const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive';
       .setCallback(async data=>{
         if(data.action===google.picker.Action.PICKED){
           const doc=data.docs[0];
-          try{ const r=await driveRequest(`https://www.googleapis.com/drive/v3/files/${doc.id}??alt=media&supportsAllDrives=true`); if(!r.ok) throw 0; const txt=await r.text(); loadData(JSON.parse(txt)); driveFileId=doc.id; driveFileName=doc.name; toast('已從 Drive 開啟：'+doc.name); }
+          try{ const r=await driveRequest(`https://www.googleapis.com/drive/v3/files/${doc.id}?alt=media&supportsAllDrives=true`); if(!r.ok) throw 0; const txt=await r.text(); const data=JSON.parse(txt); if(!(data.root||data.tree)){ toast('讀到的是檔案資訊、不是內容，請重新整理頁面再試一次'); return; } loadData(data); driveFileId=doc.id; driveFileName=doc.name; toast('已從 Drive 開啟：'+doc.name); }
           catch(err){ toast('讀取失敗，請確認這是本工具的 JSON 檔'); }
         }
       }).build();
@@ -491,7 +491,7 @@ const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive';
     if(!guardDrive()) return;
     try{ await getToken(); }catch(e){ toast('Google 登入未完成'); return; }
     if(driveFileId){
-      try{ const r=await driveRequest(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}??uploadType=media&supportsAllDrives=true`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:currentContent()}); if(!r.ok) throw 0; toast('已更新 Drive 檔案：'+(driveFileName||'')); }
+      try{ const r=await driveRequest(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media&supportsAllDrives=true`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:currentContent()}); if(!r.ok) throw 0; toast('已更新 Drive 檔案：'+(driveFileName||'')); }
       catch(err){ toast('存檔失敗，請再試一次'); }
     } else {
       // 尚未連結 Drive 檔案 → 選一個資料夾，建立新檔
